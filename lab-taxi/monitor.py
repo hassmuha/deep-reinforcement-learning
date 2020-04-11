@@ -5,7 +5,7 @@ import numpy as np
 
 def interact(env, agent, num_episodes=20000, window=100):
     """ Monitor agent's performance.
-    
+
     Params
     ======
     - env: instance of OpenAI Gym's Taxi-v1 environment
@@ -28,6 +28,8 @@ def interact(env, agent, num_episodes=20000, window=100):
     for i_episode in range(1, num_episodes+1):
         # begin the episode
         state = env.reset()
+        # Update the epsilon for each episode
+        agent.select_epsilon(i_episode)
         # initialize the sampled reward
         samp_reward = 0
         while True:
