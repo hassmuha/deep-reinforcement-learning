@@ -3,24 +3,28 @@ import random
 from collections import namedtuple, deque
 
 from model import QNetwork
+from model import DuelingDQN
+
 
 import torch
 import torch.nn.functional as F
 import torch.optim as optim
 
-BUFFER_SIZE = int(1e4)  # replay buffer size
+BUFFER_SIZE = int(2e4)  # replay buffer size
 BATCH_SIZE = 64         # minibatch size
 GAMMA = 0.99            # discount factor
 TAU = 1e-3              # for soft update of target parameters
 LR = 5e-4               # learning rate
-UPDATE_EVERY = 8        # how often to update the network
+UPDATE_EVERY = 4        # how often to update the network
 PRIO_E = 1e-5           # e parameter for prioritized Experience Replay
 PRIO_A = 0.6            # a parameter for prioritized Experience Replay
 PRIO_B = 0.4            # b parameter for prioritized Experience Replay
-PRIO_B_INC = 0.00001     # b parameter increment
+PRIO_B_INC = 0.000005     # b parameter increment
 
-# ideas to explore
-# change the minimum and maximum priority function
+# Hassan : ToDo
+# dropput removed : does not work well
+# Currently the prioritized queue works after certain iteration. dependent upon b_step.
+# Looks ok as in the beginning until the buffer is full its better to take equal probability
 
 device = torch.device("cuda:0" if torch.cuda.is_available() else "cpu")
 
@@ -41,8 +45,8 @@ class Agent():
         self.seed = random.seed(seed)
 
         # Q-Network
-        self.qnetwork_local = QNetwork(state_size, action_size, seed).to(device)
-        self.qnetwork_target = QNetwork(state_size, action_size, seed).to(device)
+        self.qnetwork_local = DuelingDQN(state_size, action_size, seed).to(device)
+        self.qnetwork_target = DuelingDQN(state_size, action_size, seed).to(device)
         self.optimizer = optim.Adam(self.qnetwork_local.parameters(), lr=LR)
 
         # Replay memory
@@ -103,10 +107,11 @@ class Agent():
         :param t: integer. Current time step in the episode
         :return current_beta: float. Current exponent beta
         '''
-        f_frac = min(float(t) / self.max_b_step, 1.0)
-        current_beta = self.prio_b + f_frac * (1. - self.prio_b)
-        current_beta = min(1,current_beta)
-        return current_beta
+        #f_frac = min(float(t) / self.max_b_step, 1.0)
+        #current_beta = self.prio_b + f_frac * (1. - self.prio_b)
+        #current_beta = min(1,current_beta)
+        self.prio_b = min(1,self.prio_b + PRIO_B_INC)
+        return self.prio_b
 
     def learn(self, experiences, gamma, indices):
         """Update value parameters using given batch of experience tuples.
@@ -176,7 +181,8 @@ class Agent():
         loss = square_weighted_error.mean()
 
         # Hassan : after the observations observation from example, update was done after the weights calculation
-        self.memory.prio_update(indices,td_error.detach().numpy(),PRIO_E,PRIO_A)
+        if self.prio_b > 0.5:
+            self.memory.prio_update(indices,td_error.detach().numpy(),PRIO_E,PRIO_A)
 
 
         # Compute loss

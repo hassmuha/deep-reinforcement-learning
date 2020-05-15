@@ -32,15 +32,17 @@ class DuelingDQN(nn.Module):
     def __init__(self, input_dim, output_dim, seed):
         super(DuelingDQN, self).__init__()
         self.seed = torch.manual_seed(seed)
-        
+
         self.input_dim = input_dim
         self.output_dim = output_dim
 
         self.feauture_layer = nn.Sequential(
-            nn.Linear(self.input_dim[0], 128),
+            nn.Linear(self.input_dim, 128),
             nn.ReLU(),
+            #nn.Dropout(p=0.2),
             nn.Linear(128, 128),
             nn.ReLU()
+            #nn.Dropout(p=0.2)
         )
 
         self.value_stream = nn.Sequential(
