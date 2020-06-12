@@ -9,13 +9,17 @@ import torch
 import torch.nn.functional as F
 import torch.optim as optim
 
-BUFFER_SIZE = int(1e5)  # replay buffer size
+BUFFER_SIZE = int(5e5)  # replay buffer size
 BATCH_SIZE = 128        # minibatch size
 GAMMA = 0.99            # discount factor
 TAU = 1e-3              # for soft update of target parameters
 LR_ACTOR = 1e-3         # learning rate of the actor
 LR_CRITIC = 1e-3        # learning rate of the critic
 WEIGHT_DECAY = 0        # L2 weight decay
+LEARNPERSTEP = 1        # LEARNPERSTEP define the amount of learning performed per agents step.
+NOISEDECAY = 1      # Reducing the Ornstein-Uhlenbeck process Noise addition step with NOISEDECAY
+
+# as multiple agents simultaneouly add data to reply buffer we can train the network multiple times
 
 device = torch.device("cuda:0" if torch.cuda.is_available() else "cpu")
 
@@ -47,6 +51,7 @@ class Agent():
 
         # Noise process
         self.noise = OUNoise((n_agents, action_size), random_seed)
+        self.noise_decay = NOISEDECAY
 
         # Replay memory
         self.memory = ReplayBuffer(action_size, BUFFER_SIZE, BATCH_SIZE, random_seed)
@@ -62,8 +67,9 @@ class Agent():
 
         # Learn, if enough samples are available in memory
         if len(self.memory) > BATCH_SIZE:
-            experiences = self.memory.sample()
-            self.learn(experiences, GAMMA)
+            for i_learn in range(LEARNPERSTEP):
+                experiences = self.memory.sample()
+                self.learn(experiences, GAMMA)
 
     def act(self, state, add_noise=True):
         """Returns actions for given state as per current policy."""
@@ -73,7 +79,9 @@ class Agent():
             action = self.actor_local(state).cpu().data.numpy()
         self.actor_local.train()
         if add_noise:
-            action += self.noise.sample()
+            action += self.noise_decay * self.noise.sample()
+            # Decay the noise process along the time
+            self.noise_decay *= self.noise_decay
         return np.clip(action, -1, 1)
 
     def reset(self):
@@ -104,6 +112,7 @@ class Agent():
         # Minimize the loss
         self.critic_optimizer.zero_grad()
         critic_loss.backward()
+        torch.nn.utils.clip_grad_norm_(self.critic_local.parameters(), 1)
         self.critic_optimizer.step()
 
         # ---------------------------- update actor ---------------------------- #
