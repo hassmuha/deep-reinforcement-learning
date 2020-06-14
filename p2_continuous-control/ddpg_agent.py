@@ -17,7 +17,6 @@ LR_ACTOR = 1e-3         # learning rate of the actor
 LR_CRITIC = 1e-3        # learning rate of the critic
 WEIGHT_DECAY = 0        # L2 weight decay
 LEARNPERSTEP = 1        # LEARNPERSTEP define the amount of learning performed per agents step.
-NOISEDECAY = 1      # Reducing the Ornstein-Uhlenbeck process Noise addition step with NOISEDECAY
 
 # as multiple agents simultaneouly add data to reply buffer we can train the network multiple times
 
@@ -51,7 +50,6 @@ class Agent():
 
         # Noise process
         self.noise = OUNoise((n_agents, action_size), random_seed)
-        self.noise_decay = NOISEDECAY
 
         # Replay memory
         self.memory = ReplayBuffer(action_size, BUFFER_SIZE, BATCH_SIZE, random_seed)
@@ -79,9 +77,7 @@ class Agent():
             action = self.actor_local(state).cpu().data.numpy()
         self.actor_local.train()
         if add_noise:
-            action += self.noise_decay * self.noise.sample()
-            # Decay the noise process along the time
-            self.noise_decay *= self.noise_decay
+            action += self.noise.sample()
         return np.clip(action, -1, 1)
 
     def reset(self):
