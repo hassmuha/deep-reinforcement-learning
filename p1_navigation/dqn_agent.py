@@ -19,12 +19,7 @@ UPDATE_EVERY = 4        # how often to update the network
 PRIO_E = 1e-5           # e parameter for prioritized Experience Replay
 PRIO_A = 0.6            # a parameter for prioritized Experience Replay
 PRIO_B = 0.4            # b parameter for prioritized Experience Replay
-PRIO_B_INC = 0.000005     # b parameter increment
-
-# Hassan : ToDo
-# dropput removed : does not work well
-# Currently the prioritized queue works after certain iteration. dependent upon b_step.
-# Looks ok as in the beginning until the buffer is full its better to take equal probability
+PRIO_B_INC = 0.000005     # b parameter increment per learning step
 
 device = torch.device("cuda:0" if torch.cuda.is_available() else "cpu")
 
@@ -59,8 +54,6 @@ class Agent():
         self.learnFirst = True
 
     def step(self, state, action, reward, next_state, done):
-        # Save experience in replay memory
-        #self.memory.add(state, action, reward, next_state, done)
 
         # Hassan : Save the experience in prioritized replay memory
         self.memory.prio_add(state, action, reward, next_state, done)
@@ -70,10 +63,6 @@ class Agent():
         if self.t_step == 0:
             # If enough samples are available in memory, get random subset and learn
             if len(self.memory) > BATCH_SIZE:
-                #experiences = self.memory.sample()
-                #self.learn(experiences, GAMMA)
-
-                # Hassan : prioritized replay memory
 
                 self.b_step = self.b_step + 1
                 experiences, indices = self.memory.prio_sample()
@@ -123,78 +112,46 @@ class Agent():
         """
         states, actions, rewards, next_states, dones, probabilities = experiences
 
-        ## TODO: compute and minimize the loss
         "*** YOUR CODE HERE ***"
 
-        # Get max predicted Q values (for next states) from target model
-        # Hassan : Action is selected using greedy policy
-        #Q_targets_next = self.qnetwork_target(next_states).detach().max(1)[0].unsqueeze(1)
-
-        # Hassan : Double DQN
+        # Double DQN implementation
         # Selecting actions which maximizes while taking w (qnetwork_local)
         next_actions = self.qnetwork_local(next_states).detach().argmax(dim=1).unsqueeze(1)
-        #next_actions_test = self.qnetwork_local(next_states).detach().max(1)[1].unsqueeze(1) # Hassan : from the example
-        #print(torch.sum(next_actions-next_actions_test)) # Hassan : no difference found
-        # Selecting q values of these actions using w' (qnetwork_target)
+
+        # evluate best actions using w' (qnetwork_target)
         Q_targets_next = self.qnetwork_target(next_states).gather(1, next_actions)
 
 
-        # Compute Q targets for current states
-        # Hassan : This is TD Target
+        # Compute Q targets for current states (TD Target)
         Q_targets = rewards + (gamma * Q_targets_next * (1 - dones))
 
         # Get expected Q values from local model
-        # Hassan : This is current value
         Q_expected = self.qnetwork_local(states).gather(1, actions)
 
-        #Hassan : Compute the td_error
+        # Compute the td_error
         td_error = Q_targets - Q_expected
-        #print(td_error.detach().numpy())
-        #self.prio_b = min(1, PRIO_B_INC+self.prio_b)
-        f_currbeta = self.get_beta(0)
-        #print(f_currbeta)
-        #f_currbeta = self.get_beta(self.b_step)
-        #print(self.b_step)
 
-        #print(t)
-        #print(self.prio_b)
+
+        f_currbeta = self.get_beta(0)
+
+        # Prioritized experience replay : calculating the final weights for calculating loss function
         weights_importance = probabilities.mul_(self.memory.__len__()).pow_(-f_currbeta)
-        #  Hassan : calculate max_weights_importance
-        #probabilities_min = min(self.memory.priorities)/self.memory.cum_priorities
         probabilities_min = self.memory.min_priority/self.memory.cum_priorities
         max_weights_importance = (probabilities_min * self.memory.__len__())**(-f_currbeta)
-        # Hassan : divide the weights importance with the max_weights_importance
-        # Hassan : Improvement why not calculating the max_weights_importance = max(weights_importance)??
-        # Hassan : this will only calculating on the current list not the complete one
-
-        #print(weights_importance)
-        #print(weights_importance.max(0)[0])
-        #print(max_weights_importance)
-        #if self.learnFirst:
-        #    self.learnFirst = False
-        #else :
-        #    max_weights_importance = max_weights_importance[0]
-
         weights_final = weights_importance.div_(max_weights_importance)
 
+        # Compute mean squared weighted error
         square_weighted_error = td_error.pow_(2).mul_(weights_final)
         loss = square_weighted_error.mean()
 
-        # Hassan : after the observations observation from example, update was done after the weights calculation
-        #if self.prio_b > 0.5:
-        self.memory.prio_update(indices,td_error.detach().numpy(),PRIO_E,PRIO_A)
-
-
-        # Compute loss
-        #loss = F.mse_loss(Q_expected, Q_targets)
-        # Minimize the loss
         self.optimizer.zero_grad()
         loss.backward()
         self.optimizer.step()
 
+        #  Prioritized experience replay : updating the priority of experience tuple in replay buffer
+        self.memory.prio_update(indices,td_error.detach().numpy(),PRIO_E,PRIO_A)
+
         # ------------------- update target network ------------------- #
-        # Hassan : Here not after C steps w is changed though cahnged slightly after every learn step
-        # Hassan : We can modify to change this after ever C steps
         self.soft_update(self.qnetwork_local, self.qnetwork_target, TAU)
 
     def soft_update(self, local_model, target_model, tau):
@@ -279,10 +236,6 @@ class ReplayBuffer:
         if self.cum_priorities:
             probabilities_all = np.array(self.priorities)/self.cum_priorities
 
-        #indices = random.choices(np.arange(self.__len__()), weights=probabilities_all, k=self.batch_size)
-        #print(self.priorities)
-        #print(probabilities_all)
-
         buffer_len = self.__len__()
         indices = np.random.choice(buffer_len,size=min(buffer_len, self.batch_size),p=probabilities_all)
 
@@ -302,7 +255,6 @@ class ReplayBuffer:
             self.priorities[i] = np.power(np.abs(f_tderr[0]) + e,a)
             self.cum_priorities += self.priorities[i]
 
-            # Hassan : check whether this has some problem?
             if self.priorities[i]>self.max_priority:
                 self.max_priority = self.priorities[i]
             if self.priorities[i]<self.min_priority:

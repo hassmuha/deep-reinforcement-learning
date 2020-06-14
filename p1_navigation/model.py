@@ -39,10 +39,8 @@ class DuelingDQN(nn.Module):
         self.feauture_layer = nn.Sequential(
             nn.Linear(self.input_dim, 128),
             nn.ReLU(),
-            #nn.Dropout(p=0.2),
             nn.Linear(128, 128),
             nn.ReLU()
-            #nn.Dropout(p=0.2)
         )
 
         self.value_stream = nn.Sequential(
